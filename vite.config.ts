@@ -3,11 +3,10 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: './',
+  base: './', // Ensures assets load correctly on GitHub Pages
   build: {
-    rollupOptions: {
-      // Prevent Vite from bundling these; they will be loaded via importmap in index.html
-      external: ['react', 'react-dom', 'react-dom/client', 'three', 'lucide-react']
-    }
+    outDir: 'dist',
+    assetsDir: 'assets',
+    // Removed rollupOptions.external to ensure React, Three.js, etc. are bundled
   }
 })

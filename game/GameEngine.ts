@@ -7,8 +7,8 @@ export class GameEngine {
     clock: THREE.Clock;
     isDisposed: boolean;
     paused: boolean = false;
-    // Updated hard cap to 10 Million
-    MAX_DRONES = 10000000; 
+    // Increased hard cap
+    MAX_DRONES = 5000000; 
     // Increased render cap slightly so small swarms are always smooth
     OPTIMIZED_RENDER_CAP = 40000;
     
@@ -105,8 +105,8 @@ export class GameEngine {
             enemiesDefeated: 0,
             squads: [],
             lagOptimization: false,
-            softMaxDrones: 2500000, // Default soft cap 2.5M
-            customMaxDronesEnabled: true, // Enabled by default to enforce the 2.5M limit initially
+            softMaxDrones: 2500000,
+            customMaxDronesEnabled: false,
             graphicsQuality: 'HIGH'
         };
 
@@ -116,7 +116,7 @@ export class GameEngine {
             if (saved) {
                 const p = JSON.parse(saved);
                 if(p.lag !== undefined) this.state.lagOptimization = p.lag;
-                if(p.limit !== undefined) this.state.softMaxDrones = Math.min(this.MAX_DRONES, p.limit);
+                if(p.limit !== undefined) this.state.softMaxDrones = p.limit;
                 if(p.custom !== undefined) this.state.customMaxDronesEnabled = p.custom;
                 if(p.quality !== undefined) this.state.graphicsQuality = p.quality;
             }
@@ -174,99 +174,94 @@ export class GameEngine {
     }
 
     init() {
-        try {
-            this.dronePos = new Float32Array(this.MAX_DRONES * 3);
-            this.droneTargetId = new Int32Array(this.MAX_DRONES).fill(-1);
-            this.droneCommandId = new Int32Array(this.MAX_DRONES).fill(-1);
-            this.droneState = new Int8Array(this.MAX_DRONES).fill(this.STATE_MINING_SEEK);
-            this.droneLoad = new Float32Array(this.MAX_DRONES).fill(0);
-            this.droneHP = new Float32Array(this.MAX_DRONES).fill(1);
+        this.dronePos = new Float32Array(this.MAX_DRONES * 3);
+        this.droneTargetId = new Int32Array(this.MAX_DRONES).fill(-1);
+        this.droneCommandId = new Int32Array(this.MAX_DRONES).fill(-1);
+        this.droneState = new Int8Array(this.MAX_DRONES).fill(this.STATE_MINING_SEEK);
+        this.droneLoad = new Float32Array(this.MAX_DRONES).fill(0);
+        this.droneHP = new Float32Array(this.MAX_DRONES).fill(1);
 
-            this.scene = new THREE.Scene();
-            this.scene.background = new THREE.Color(0x000510);
-            this.scene.fog = new THREE.FogExp2(0x000510, 0.0008);
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color(0x000510);
+        this.scene.fog = new THREE.FogExp2(0x000510, 0.0008);
 
-            this.camera = new THREE.PerspectiveCamera(60, this.container.clientWidth / this.container.clientHeight, 1, 10000);
-            this.updateCamera();
+        this.camera = new THREE.PerspectiveCamera(60, this.container.clientWidth / this.container.clientHeight, 1, 10000);
+        this.updateCamera();
 
-            this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
-            this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
-            this.container.appendChild(this.renderer.domElement);
+        this.renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+        this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+        this.container.appendChild(this.renderer.domElement);
 
-            this.applyGraphicsSettings();
+        this.applyGraphicsSettings();
 
-            this.scene.add(new THREE.AmbientLight(0x404060, 2.0));
-            const dirLight = new THREE.DirectionalLight(0xffffff, 3.0);
-            dirLight.position.set(200, 500, 200);
-            this.scene.add(dirLight);
+        this.scene.add(new THREE.AmbientLight(0x404060, 2.0));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 3.0);
+        dirLight.position.set(200, 500, 200);
+        this.scene.add(dirLight);
 
-            this.mothershipGroup = this.createMothership();
-            this.scene.add(this.mothershipGroup);
-            this.msRing = this.mothershipGroup.getObjectByName('ring');
-            this.msRingTop = this.mothershipGroup.getObjectByName('ring2');
-            
-            const shieldGeo = new THREE.SphereGeometry(50, 64, 64);
-            const shieldMat = new THREE.MeshStandardMaterial({ color: 0x0088ff, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
-            this.shieldSphere = new THREE.Mesh(shieldGeo, shieldMat);
-            this.shieldSphere.position.y = 30; 
-            this.shieldSphere.visible = false;
-            this.mothershipGroup.add(this.shieldSphere);
+        this.mothershipGroup = this.createMothership();
+        this.scene.add(this.mothershipGroup);
+        this.msRing = this.mothershipGroup.getObjectByName('ring');
+        this.msRingTop = this.mothershipGroup.getObjectByName('ring2');
+        
+        const shieldGeo = new THREE.SphereGeometry(50, 64, 64);
+        const shieldMat = new THREE.MeshStandardMaterial({ color: 0x0088ff, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending });
+        this.shieldSphere = new THREE.Mesh(shieldGeo, shieldMat);
+        this.shieldSphere.position.y = 30; 
+        this.shieldSphere.visible = false;
+        this.mothershipGroup.add(this.shieldSphere);
 
-            this.missileGroup = new THREE.Group();
-            this.scene.add(this.missileGroup);
+        this.missileGroup = new THREE.Group();
+        this.scene.add(this.missileGroup);
 
-            const droneGeo = new THREE.ConeGeometry(0.8, 2.5, 3);
-            droneGeo.rotateX(Math.PI / 2);
-            const droneMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-            this.droneMesh = new THREE.InstancedMesh(droneGeo, droneMat, this.MAX_DRONES);
-            this.droneMesh.count = this.state.droneCount;
-            this.droneMesh.frustumCulled = false;
-            this.droneMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.MAX_DRONES * 3), 3);
-            this.scene.add(this.droneMesh);
+        const droneGeo = new THREE.ConeGeometry(0.8, 2.5, 3);
+        droneGeo.rotateX(Math.PI / 2);
+        const droneMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        this.droneMesh = new THREE.InstancedMesh(droneGeo, droneMat, this.MAX_DRONES);
+        this.droneMesh.count = this.state.droneCount;
+        this.droneMesh.frustumCulled = false;
+        this.droneMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.MAX_DRONES * 3), 3);
+        this.scene.add(this.droneMesh);
 
-            // Buffer size fixed to max, but we draw less in LOW quality
-            const maxVisualLasers = 1000;
-            this.miningLaserGeo = new THREE.BufferGeometry();
-            this.miningLaserGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(maxVisualLasers * 2 * 3), 3));
-            const miningMat = new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthTest: false });
-            this.miningLines = new THREE.LineSegments(this.miningLaserGeo, miningMat);
-            this.miningLines.frustumCulled = false;
-            this.scene.add(this.miningLines);
+        // Buffer size fixed to max, but we draw less in LOW quality
+        const maxVisualLasers = 1000;
+        this.miningLaserGeo = new THREE.BufferGeometry();
+        this.miningLaserGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(maxVisualLasers * 2 * 3), 3));
+        const miningMat = new THREE.LineBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthTest: false });
+        this.miningLines = new THREE.LineSegments(this.miningLaserGeo, miningMat);
+        this.miningLines.frustumCulled = false;
+        this.scene.add(this.miningLines);
 
-            this.pendingLineGeo = new THREE.BufferGeometry();
-            this.pendingLineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3000), 3));
-            this.pendingLine = new THREE.Line(this.pendingLineGeo, new THREE.LineBasicMaterial({ color: 0xffffff }));
-            this.pendingLine.frustumCulled = false;
-            this.scene.add(this.pendingLine);
+        this.pendingLineGeo = new THREE.BufferGeometry();
+        this.pendingLineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3000), 3));
+        this.pendingLine = new THREE.Line(this.pendingLineGeo, new THREE.LineBasicMaterial({ color: 0xffffff }));
+        this.pendingLine.frustumCulled = false;
+        this.scene.add(this.pendingLine);
 
-            this.cursorRing = new THREE.Mesh(
-                new THREE.RingGeometry(2, 2.5, 16),
-                new THREE.MeshBasicMaterial({ color: 0x00ffff, opacity: 0.5, transparent: true, side: THREE.DoubleSide })
-            );
-            this.cursorRing.rotation.x = -Math.PI/2;
-            this.scene.add(this.cursorRing);
+        this.cursorRing = new THREE.Mesh(
+            new THREE.RingGeometry(2, 2.5, 16),
+            new THREE.MeshBasicMaterial({ color: 0x00ffff, opacity: 0.5, transparent: true, side: THREE.DoubleSide })
+        );
+        this.cursorRing.rotation.x = -Math.PI/2;
+        this.scene.add(this.cursorRing);
 
-            if (this.config.isTutorial) {
-                for(let i=0; i<this.state.droneCount; i++) this.initDrone(i);
-            } else {
-                // Re-init drones based on saved count or default
-                for(let i=0; i<this.state.droneCount; i++) this.initDrone(i);
-            }
-            this.spawnAsteroidInternal(true);
-
-            window.addEventListener('resize', this.onWindowResize);
-            this.container.addEventListener('mousedown', this.onMouseDown);
-            this.container.addEventListener('mousemove', this.onMouseMove);
-            window.addEventListener('mouseup', this.onMouseUp);
-            this.container.addEventListener('wheel', this.onWheel, { passive: false });
-            this.container.addEventListener('contextmenu', e => e.preventDefault());
-
-            this.onWindowResize();
-            this.animate();
-        } catch (e) {
-            console.error("GameEngine Init Failed", e);
-            this.config.onMessage("SYSTEM FAILURE: INSUFFICIENT MEMORY");
+        if (this.config.isTutorial) {
+            for(let i=0; i<this.state.droneCount; i++) this.initDrone(i);
+        } else {
+            // Re-init drones based on saved count or default
+            for(let i=0; i<this.state.droneCount; i++) this.initDrone(i);
         }
+        this.spawnAsteroidInternal(true);
+
+        window.addEventListener('resize', this.onWindowResize);
+        this.container.addEventListener('mousedown', this.onMouseDown);
+        this.container.addEventListener('mousemove', this.onMouseMove);
+        window.addEventListener('mouseup', this.onMouseUp);
+        this.container.addEventListener('wheel', this.onWheel, { passive: false });
+        this.container.addEventListener('contextmenu', e => e.preventDefault());
+
+        this.onWindowResize();
+        this.animate();
     }
 
     applyGraphicsSettings() {
